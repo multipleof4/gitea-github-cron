@@ -14,7 +14,7 @@ const req = async (url, h, m = 'GET', b = null) => {
     }
     return res.ok ? (m === 'GET' ? res.json() : res) : null;
   } catch (e) {
-    if (m !== 'GET') throw e; // Re-throw for non-GET to handle in loop
+    if (m !== 'GET') throw e; 
     return null;
   }
 };
@@ -48,8 +48,12 @@ const getPages = async (url) => {
         const gOrg = await req(`${G_API}/orgs/${org.login}`, headers.GT);
         if (!gOrg) {
           console.log(`Creating Org: ${org.login}`);
-          await req(`${G_API}/orgs`, headers.GT, 'POST', { username: org.login, visibility: 'private' });
+          await req(`${G_API}/orgs`, headers.GT, 'POST', { username: org.login, visibility: 'public' });
+        } else if (gOrg.visibility !== 'public') {
+          console.log(`Updating Org Visibility: ${org.login}`);
+          await req(`${G_API}/orgs/${org.login}`, headers.GT, 'PATCH', { visibility: 'public' });
         }
+        
         const orgRepos = await getPages(`https://api.github.com/orgs/${org.login}/repos?type=all`);
         allRepos.push(...orgRepos);
       } catch (e) {
