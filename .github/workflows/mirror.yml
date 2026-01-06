@@ -1,1 +1,25 @@
+name: Mirror to Gitea
 
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */4 * * *' # Run every 4 hours
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Mirror Script
+        run: node mirror.js
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_URL: ${{ secrets.GITEA_URL }}
