@@ -14,7 +14,7 @@ const req = async (url, h, m = 'GET', b = null) => {
     }
     return res.ok ? (m === 'GET' ? res.json() : res) : null;
   } catch (e) {
-    if (m !== 'GET') throw e; 
+    if (m !== 'GET') throw e;
     return null;
   }
 };
@@ -30,7 +30,7 @@ const getPages = async (url) => {
 
 (async () => {
   console.log('Starting Mirror Sync...');
-  
+
   try {
     const gUser = await req(`${G_API}/user`, headers.GT);
     if (!gUser) throw new Error('Cannot auth with Gitea');
@@ -41,7 +41,7 @@ const getPages = async (url) => {
     ]);
 
     let allRepos = [...ghUserRepos];
-    
+
     for (const org of ghOrgs) {
       console.log(`Checking Org: ${org.login}`);
       try {
@@ -53,7 +53,7 @@ const getPages = async (url) => {
           console.log(`Updating Org Visibility: ${org.login}`);
           await req(`${G_API}/orgs/${org.login}`, headers.GT, 'PATCH', { visibility: 'public' });
         }
-        
+
         const orgRepos = await getPages(`https://api.github.com/orgs/${org.login}/repos?type=all`);
         allRepos.push(...orgRepos);
       } catch (e) {
@@ -66,7 +66,7 @@ const getPages = async (url) => {
       try {
         const owner = r.owner.login;
         const exists = await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT);
-        
+
         if (!exists) {
           console.log(`Mirroring: ${owner}/${r.name}`);
           const payload = {
@@ -88,6 +88,9 @@ const getPages = async (url) => {
             mirror_prune: true
           };
           await req(`${G_API}/repos/migrate`, headers.GT, 'POST', payload);
+        } else if (exists.private !== r.private) {
+          console.log(`Updating visibility: ${owner}/${r.name} → ${r.private ? 'private' : 'public'}`);
+          await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'PATCH', { private: r.private });
         }
       } catch (e) {
         console.error(`Failed to mirror ${r.owner.login}/${r.name}:`, e.message);
