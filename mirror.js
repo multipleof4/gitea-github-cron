@@ -6,25 +6,24 @@ const headers = {
   GT: { Authorization: `token ${GITEA_TOKEN}`, 'Content-Type': 'application/json' }
 };
 
-const req = async (url, h, m = 'GET', b = null) => {
-  try {
-    const res = await fetch(url, { method: m, headers: h, body: b ? JSON.stringify(b) : null });
-    if (!res.ok && m !== 'GET') {
-      const txt = await res.text();
-      throw new Error(`${res.status} ${res.statusText}: ${txt}`);
-    }
-    return res.ok ? (m === 'GET' ? res.json() : res) : null;
-  } catch (e) {
-    if (m !== 'GET') throw e;
-    return null;
+const req = async (url, h, m = 'GET', b = null, allow404 = false) => {
+  const res = await fetch(url, { method: m, headers: h, body: b ? JSON.stringify(b) : null });
+  if (res.status === 404 && allow404) return null;
+  if (!res.ok) {
+    const remaining = res.headers.get('x-ratelimit-remaining');
+    const reset = res.headers.get('x-ratelimit-reset');
+    const limit = remaining === null ? '' : ` (GitHub rate limit remaining: ${remaining}, reset: ${reset})`;
+    throw new Error(`${res.status} ${res.statusText}${limit}: ${(await res.text()).slice(0, 500)}`);
   }
+  return m === 'GET' ? res.json() : res;
 };
 
 const getPages = async (url) => {
   let p = 1, all = [], d;
   do {
     d = await req(`${url}${url.includes('?') ? '&' : '?'}per_page=100&page=${p++}`, headers.GH);
-    if (Array.isArray(d)) all.push(...d);
+    if (!Array.isArray(d)) throw new Error(`Expected a list from ${url}`);
+    all.push(...d);
   } while (d?.length === 100);
   return all;
 };
@@ -42,12 +41,12 @@ const getPages = async (url) => {
     ]);
 
     let allRepos = [...ghUserRepos];
-    let avatarFailures = 0;
+    let avatarFailures = 0, repoFailures = 0;
 
     for (const org of ghOrgs) {
       console.log(`Checking Org: ${org.login}`);
       try {
-        const gOrg = await req(`${G_API}/orgs/${org.login}`, headers.GT);
+        const gOrg = await req(`${G_API}/orgs/${org.login}`, headers.GT, 'GET', null, true);
         if (!gOrg) {
           console.log(`Creating Org: ${org.login}`);
           await req(`${G_API}/orgs`, headers.GT, 'POST', { username: org.login, visibility: 'public' });
@@ -66,7 +65,7 @@ const getPages = async (url) => {
         const orgRepos = await getPages(`https://api.github.com/orgs/${org.login}/repos?type=all`);
         allRepos.push(...orgRepos);
       } catch (e) {
-        console.error(`Failed to process org ${org.login}:`, e.message);
+        throw new Error(`Failed to process org ${org.login}: ${e.message}`);
       }
     }
 
@@ -74,7 +73,7 @@ const getPages = async (url) => {
     for (const r of allRepos) {
       try {
         const owner = r.owner.login;
-        const exists = await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT);
+        const exists = await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'GET', null, true);
 
         if (!exists) {
           console.log(`Mirroring: ${owner}/${r.name}`);
@@ -102,16 +101,17 @@ const getPages = async (url) => {
           await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'PATCH', { private: r.private });
         }
       } catch (e) {
+        repoFailures++;
         console.error(`Failed to mirror ${r.owner.login}/${r.name}:`, e.message);
       }
     }
-    if (avatarFailures) {
-      console.error(`Failed to sync ${avatarFailures} organization avatar(s).`);
+    if (avatarFailures || repoFailures) {
+      console.error(`Sync finished with ${avatarFailures} avatar failure(s) and ${repoFailures} repository failure(s).`);
       process.exitCode = 1;
     }
   } catch (err) {
     console.error('Fatal Error:', err);
     process.exit(1);
   }
-  console.log('Sync Complete.');
+  if (!process.exitCode) console.log('Sync Complete.');
 })();
