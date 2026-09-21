@@ -15,8 +15,18 @@ jobs:
         with:
           node-version: 20
       - name: Rename mirrors missing on GitHub
+        id: sync
         run: node rename-gone-mirrors.js
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
           GITEA_URL: ${{ secrets.GITEA_URL }}
+
+      - name: Notify via ntfy
+        if: ${{ always() }}
+        run: node notify.js
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          WORKFLOW_KIND: rename
+          STEP_OUTCOME: ${{ steps.sync.outcome }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

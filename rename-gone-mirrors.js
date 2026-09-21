@@ -1,3 +1,4 @@
+const { writeFileSync } = require('node:fs');
 const { GH_PAT, GITEA_TOKEN, GITEA_URL } = process.env;
 if (![GH_PAT, GITEA_TOKEN, GITEA_URL].every(Boolean)) {
   throw new Error('GH_PAT, GITEA_TOKEN, and GITEA_URL are required');
@@ -8,6 +9,7 @@ const github = 'https://api.github.com';
 const ghHeaders = { Authorization: `token ${GH_PAT}`, Accept: 'application/vnd.github+json' };
 const gtHeaders = { Authorization: `token ${GITEA_TOKEN}`, 'Content-Type': 'application/json' };
 const key = value => value.toLowerCase();
+const facts = { orgsChecked: 0, skippedOrgs: 0, mirrorsFound: 0, renamed: 0, failures: 0, changes: [] };
 
 const request = async (url, headers, method = 'GET', body, missingOK = false) => {
   const res = await fetch(url, {
@@ -86,6 +88,7 @@ const alreadyGone = (name, original) =>
   const ghOrgNames = new Set(ghOrgs.map(org => key(org.login)));
   const groups = [{ owner: gtUser.login, repos: gtPersonal, ghRepos: personal }];
   for (const org of gtOrgs) {
+    facts.orgsChecked++;
     const owner = org.username || org.name;
     if (ghOrgNames.has(key(owner))) {
       const [ghOrg, ghRepos, gtRepos] = await Promise.all([
@@ -101,6 +104,7 @@ const alreadyGone = (name, original) =>
     } else {
       const ghOrg = await request(`${github}/orgs/${encodeURIComponent(owner)}`, ghHeaders, 'GET', null, true);
       if (ghOrg) {
+        facts.skippedOrgs++;
         console.log(`Skipping ${owner}: GitHub organization exists but is not listed for this token`);
         continue;
       }
@@ -109,13 +113,14 @@ const alreadyGone = (name, original) =>
     }
   }
 
-  let renamed = 0, failures = 0;
   for (const { owner, repos, ghRepos } of groups) {
     const live = new Set(ghRepos.map(repo => key(repo.name)));
     const occupied = new Set(repos.map(repo => key(repo.name)));
     for (const repo of repos) {
       const remote = source(repo);
-      if (!remote || key(repo.owner.login) !== key(owner) || live.has(key(remote.name))) continue;
+      if (!remote || key(repo.owner.login) !== key(owner)) continue;
+      facts.mirrorsFound++;
+      if (live.has(key(remote.name))) continue;
       if (alreadyGone(repo.name, remote.name)) continue;
 
       try {
@@ -134,17 +139,21 @@ const alreadyGone = (name, original) =>
         if (key(updated.name) !== key(name)) throw new Error('Gitea did not return the requested name');
         occupied.delete(key(repo.name));
         occupied.add(key(name));
-        renamed++;
+        facts.renamed++;
+        facts.changes.push(`${owner}/${repo.name} → ${owner}/${name}`);
         console.log(`Renamed ${owner}/${repo.name} to ${owner}/${name}`);
       } catch (error) {
-        failures++;
+        facts.failures++;
         console.error(`Failed to check or rename ${owner}/${repo.name}: ${error.message}`);
       }
     }
   }
-  console.log(`Renamed ${renamed} missing GitHub mirror(s); ${failures} failure(s).`);
-  if (failures) process.exitCode = 1;
+  console.log(`Renamed ${facts.renamed} missing GitHub mirror(s); ${facts.failures} failure(s).`);
+  if (facts.failures) process.exitCode = 1;
 })().catch(error => {
   console.error(`Fatal: ${error.message}`);
+  facts.fatal = true;
   process.exitCode = 1;
+}).finally(() => {
+  if (process.env.GITHUB_ACTIONS) writeFileSync('rename-facts.json', JSON.stringify(facts));
 });

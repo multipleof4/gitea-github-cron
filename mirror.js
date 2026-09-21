@@ -1,5 +1,10 @@
 const syncOrgAvatar = require('./sync-org-avatar');
+const { writeFileSync } = require('node:fs');
 const { GH_PAT, GITEA_TOKEN, GITEA_URL } = process.env;
+const facts = {
+  orgsChecked: 0, orgsCreated: 0, orgVisibilityChanged: 0, avatarsUpdated: 0,
+  reposFound: 0, mirrorsCreated: 0, repoVisibilityChanged: 0, failures: 0, changes: []
+};
 const G_API = `https://${GITEA_URL.replace(/^https?:\/\//, '')}/api/v1`;
 const headers = {
   GH: { Authorization: `token ${GH_PAT}`, Accept: 'application/vnd.github+json' },
@@ -44,19 +49,28 @@ const getPages = async (url) => {
     let avatarFailures = 0, repoFailures = 0;
 
     for (const org of ghOrgs) {
+      facts.orgsChecked++;
       console.log(`Checking Org: ${org.login}`);
       try {
         const gOrg = await req(`${G_API}/orgs/${org.login}`, headers.GT, 'GET', null, true);
         if (!gOrg) {
           console.log(`Creating Org: ${org.login}`);
           await req(`${G_API}/orgs`, headers.GT, 'POST', { username: org.login, visibility: 'public' });
+          facts.orgsCreated++;
+          facts.changes.push(`Created org ${org.login}`);
         } else if (gOrg.visibility !== 'public') {
           console.log(`Updating Org Visibility: ${org.login}`);
           await req(`${G_API}/orgs/${org.login}`, headers.GT, 'PATCH', { visibility: 'public' });
+          facts.orgVisibilityChanged++;
+          facts.changes.push(`Made org ${org.login} public`);
         }
 
         try {
-          if (await syncOrgAvatar(org, G_API, headers.GT)) console.log(`Updated Org Avatar: ${org.login}`);
+          if (await syncOrgAvatar(org, G_API, headers.GT)) {
+            facts.avatarsUpdated++;
+            facts.changes.push(`Updated avatar for ${org.login}`);
+            console.log(`Updated Org Avatar: ${org.login}`);
+          }
         } catch (e) {
           avatarFailures++;
           console.error(`Failed to sync avatar for ${org.login}:`, e.message);
@@ -70,6 +84,7 @@ const getPages = async (url) => {
     }
 
     console.log(`Processing ${allRepos.length} repositories...`);
+    facts.reposFound = allRepos.length;
     for (const r of allRepos) {
       try {
         const owner = r.owner.login;
@@ -96,22 +111,30 @@ const getPages = async (url) => {
             mirror_prune: true
           };
           await req(`${G_API}/repos/migrate`, headers.GT, 'POST', payload);
+          facts.mirrorsCreated++;
+          facts.changes.push(`Mirrored ${owner}/${r.name}`);
         } else if (exists.private !== r.private) {
           console.log(`Updating visibility: ${owner}/${r.name} → ${r.private ? 'private' : 'public'}`);
           await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'PATCH', { private: r.private });
+          facts.repoVisibilityChanged++;
+          facts.changes.push(`${owner}/${r.name} is now ${r.private ? 'private' : 'public'}`);
         }
       } catch (e) {
         repoFailures++;
         console.error(`Failed to mirror ${r.owner.login}/${r.name}:`, e.message);
       }
     }
+    facts.failures = avatarFailures + repoFailures;
     if (avatarFailures || repoFailures) {
       console.error(`Sync finished with ${avatarFailures} avatar failure(s) and ${repoFailures} repository failure(s).`);
       process.exitCode = 1;
     }
   } catch (err) {
     console.error('Fatal Error:', err);
-    process.exit(1);
+    facts.fatal = true;
+    process.exitCode = 1;
+  } finally {
+    if (process.env.GITHUB_ACTIONS) writeFileSync('mirror-facts.json', JSON.stringify(facts));
   }
   if (!process.exitCode) console.log('Sync Complete.');
 })();

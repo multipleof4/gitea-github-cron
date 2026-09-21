@@ -2,6 +2,11 @@ name: Mirror to Gitea
 
 on:
   workflow_dispatch:
+    inputs:
+      notification_test:
+        description: Send a test notification without running the mirror
+        type: boolean
+        default: false
   schedule:
     - cron: '0 */4 * * *' # Run every 4 hours
 
@@ -18,8 +23,20 @@ jobs:
           node-version: 20
 
       - name: Run Mirror Script
+        id: sync
+        if: ${{ !inputs.notification_test }}
         run: node mirror.js
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
           GITEA_URL: ${{ secrets.GITEA_URL }}
+
+      - name: Notify via ntfy
+        if: ${{ always() }}
+        run: node notify.js
+        env:
+          NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
+          WORKFLOW_KIND: mirror
+          STEP_OUTCOME: ${{ steps.sync.outcome }}
+          TEST_NOTIFICATION: ${{ inputs.notification_test }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
