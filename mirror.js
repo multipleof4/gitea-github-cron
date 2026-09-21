@@ -68,7 +68,6 @@ const getPages = async (url) => {
         try {
           if (await syncOrgAvatar(org, G_API, headers.GT)) {
             facts.avatarsUpdated++;
-            facts.changes.push(`Updated avatar for ${org.login}`);
             console.log(`Updated Org Avatar: ${org.login}`);
           }
         } catch (e) {
