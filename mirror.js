@@ -1,3 +1,4 @@
+const syncOrgAvatar = require('./sync-org-avatar');
 const { GH_PAT, GITEA_TOKEN, GITEA_URL } = process.env;
 const G_API = `https://${GITEA_URL.replace(/^https?:\/\//, '')}/api/v1`;
 const headers = {
@@ -41,6 +42,7 @@ const getPages = async (url) => {
     ]);
 
     let allRepos = [...ghUserRepos];
+    let avatarFailures = 0;
 
     for (const org of ghOrgs) {
       console.log(`Checking Org: ${org.login}`);
@@ -52,6 +54,13 @@ const getPages = async (url) => {
         } else if (gOrg.visibility !== 'public') {
           console.log(`Updating Org Visibility: ${org.login}`);
           await req(`${G_API}/orgs/${org.login}`, headers.GT, 'PATCH', { visibility: 'public' });
+        }
+
+        try {
+          if (await syncOrgAvatar(org, G_API, headers.GT)) console.log(`Updated Org Avatar: ${org.login}`);
+        } catch (e) {
+          avatarFailures++;
+          console.error(`Failed to sync avatar for ${org.login}:`, e.message);
         }
 
         const orgRepos = await getPages(`https://api.github.com/orgs/${org.login}/repos?type=all`);
@@ -95,6 +104,10 @@ const getPages = async (url) => {
       } catch (e) {
         console.error(`Failed to mirror ${r.owner.login}/${r.name}:`, e.message);
       }
+    }
+    if (avatarFailures) {
+      console.error(`Failed to sync ${avatarFailures} organization avatar(s).`);
+      process.exitCode = 1;
     }
   } catch (err) {
     console.error('Fatal Error:', err);
