@@ -1,0 +1,22 @@
+name: Rename deleted GitHub mirrors
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+      timezone: America/Chicago
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Rename mirrors missing on GitHub
+        run: node rename-gone-mirrors.js
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_URL: ${{ secrets.GITEA_URL }}
