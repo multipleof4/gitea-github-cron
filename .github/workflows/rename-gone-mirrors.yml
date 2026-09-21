@@ -4,31 +4,17 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 8 * * *' # 3 AM CDT
-    - cron: '0 9 * * *' # 3 AM CST
 
 jobs:
   rename:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Central time
-        id: central
-        if: github.event_name == 'schedule'
-        env:
-          SCHEDULE: ${{ github.event.schedule }}
-        run: |
-          hour=$(echo "$SCHEDULE" | cut -d' ' -f2)
-          if [ "$(TZ=America/Chicago date -d "$(date -u +%F) ${hour}:00 UTC" +%H)" = 03 ]; then
-            echo 'run=true' >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v4
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.central.outputs.run == 'true' }}
       - uses: actions/setup-node@v4
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.central.outputs.run == 'true' }}
         with:
           node-version: 20
       - name: Rename mirrors missing on GitHub
         id: sync
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.central.outputs.run == 'true' }}
         run: node rename-gone-mirrors.js
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
@@ -36,7 +22,7 @@ jobs:
           GITEA_URL: ${{ secrets.GITEA_URL }}
 
       - name: Notify via ntfy
-        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.central.outputs.run == 'true') }}
+        if: ${{ always() }}
         run: node notify.js
         env:
           NTFY_TOPIC_URL: ${{ secrets.NTFY_TOPIC_URL }}
