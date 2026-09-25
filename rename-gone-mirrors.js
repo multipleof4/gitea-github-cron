@@ -124,24 +124,26 @@ const alreadyGone = (name, original) =>
       if (alreadyGone(repo.name, remote.name)) continue;
 
       try {
-        const exists = await request(
+        // GitHub redirects transferred/renamed repos, so a different full_name means it moved
+        const current = await request(
           `${github}/repos/${encodeURIComponent(remote.owner)}/${encodeURIComponent(remote.name)}`,
           ghHeaders, 'GET', null, true
         );
-        if (exists) continue;
+        if (current && key(current.full_name) === key(`${remote.owner}/${remote.name}`)) continue;
 
         let number = 1, name;
         do name = goneName(repo.name, number++); while (occupied.has(key(name)));
         const updated = await request(
           `${gitea}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo.name)}`,
-          gtHeaders, 'PATCH', { name }
+          gtHeaders, 'PATCH', { name, mirror_interval: '0' }
         );
         if (key(updated.name) !== key(name)) throw new Error('Gitea did not return the requested name');
         occupied.delete(key(repo.name));
         occupied.add(key(name));
         facts.renamed++;
-        facts.changes.push(`${owner}/${repo.name} → ${owner}/${name}`);
-        console.log(`Renamed ${owner}/${repo.name} to ${owner}/${name}`);
+        const note = current ? ` (moved to ${current.full_name})` : '';
+        facts.changes.push(`${owner}/${repo.name} → ${owner}/${name}${note}`);
+        console.log(`Renamed ${owner}/${repo.name} to ${owner}/${name}${note}`);
       } catch (error) {
         facts.failures++;
         console.error(`Failed to check or rename ${owner}/${repo.name}: ${error.message}`);
