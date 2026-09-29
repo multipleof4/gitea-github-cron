@@ -102,7 +102,6 @@ const getPages = async (url) => {
             private: r.private,
             wiki: true,
             lfs: true,
-            releases: true,
             issues: true,
             pull_requests: true,
             labels: true,

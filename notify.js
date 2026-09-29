@@ -18,6 +18,15 @@ const labels = {
     ['renamed mirror', 'renamed'],
     ['skipped org', 'skippedOrgs'],
     ['failure', 'failures']
+  ]],
+  releases: ['Release sync', 'release-facts.json', [
+    ['mirror', 'mirrorsChecked'],
+    ['GitHub release', 'releasesFound'],
+    ['created release', 'created'],
+    ['updated release', 'updated'],
+    ['uploaded asset', 'assetsUploaded'],
+    ['unsynced tag', 'unsyncedTags'],
+    ['failure', 'failures']
   ]]
 };
 const md = text => String(text).replace(/[\\`*_[\]#]/g, '\\$&');
