@@ -11,7 +11,7 @@ GitHub Actions that back up every GitHub repo I own (personal and org) to a self
 | Mirror to Gitea | 05:00 (12 AM CDT) | `mirror.js` | Creates missing orgs and pull mirrors, syncs repo/org visibility, descriptions and org avatars |
 | Sync releases to Gitea | 06:30 (1:30 AM CDT) | `sync-releases.js` | Copies GitHub releases (title, notes, assets) onto the mirrors |
 | Rename deleted GitHub mirrors | 08:00 (3 AM CDT) | `rename-gone-mirrors.js` | Renames mirrors whose GitHub repo was deleted or moved to `<name>-goneN` and freezes them |
-| Sync issues to Gitea | 09:30 (4:30 AM CDT) | `sync-issues.js` | Copies GitHub issues, PR conversations and their comments onto the mirrors |
+| Sync issues to Gitea | 09:30 (4:30 AM CDT) | `sync-issues.js` | Copies GitHub issues and their comments onto the mirrors |
 
 Each runs once a day, 1.5 hours apart, so each one starts with a fresh hourly GitHub API budget. All can also be run by hand from the Actions tab. Each run posts a summary to ntfy through `notify.js`. `gitea-mirrors.js` holds the API helpers the two sync scripts share.
 
@@ -33,8 +33,8 @@ This relies on Gitea ≥ 1.21.5, where a mirror sync only touches tag-only entri
 Gitea drops issues for pull mirrors too, but the API still lets you create them. `sync-issues.js` copies them over through the API:
 
 - Gitea issue numbers always match GitHub's, so `#N` in commits and comments points at the right thing:
-  - PRs become issues labelled `pull request`, closed or open like on GitHub. Only their conversation comes along, not code review comments or diffs.
-  - Numbers that aren't issues on GitHub (deleted, transferred, or used by a discussion) stay gaps on Gitea too. Gitea never reuses a deleted issue's number, so an issue that lands on a gap is deleted and made again until it gets GitHub's number.
+  - PRs aren't copied, since mirrors have no pull requests. Their numbers stay gaps on Gitea.
+  - Numbers that aren't issues on GitHub (deleted, transferred, or used by a discussion) stay gaps too. Gitea never reuses a deleted issue's number, so an issue that lands on a gap is deleted and made again until it gets GitHub's number.
   - If Gitea's counter is already past a GitHub number, or `#N` on Gitea wasn't made by the sync, that repo stops with a failure instead of guessing.
 - Everything is posted as the Gitea token user. Each issue and comment opens with a quoted line naming the GitHub author, the date, and a link back. The link is how comments are matched on later runs, so don't edit it away.
 - Title, body, open/closed state, labels and comment edits follow GitHub. Nothing is deleted on Gitea.

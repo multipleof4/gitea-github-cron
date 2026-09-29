@@ -4,14 +4,13 @@ const facts = {
   mirrorsChecked: 0, issuesFound: 0, created: 0, updated: 0,
   commentsCreated: 0, commentsUpdated: 0, failures: 0, changes: []
 };
-const prLabel = { name: 'pull request', color: '8250df', description: 'Pull request on GitHub' };
 const who = user => user ? `[@${user.login}](${user.html_url})` : '@ghost';
 const quote = (header, body) => body ? `> ${header}\n\n${body}` : `> ${header}`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const names = labels => labels.map(label => label.name).sort().join('\n');
 
-// Gitea numbers must match GitHub's so #N references in commits and comments stay correct,
-// which is also why PRs come along as issues.
+// Gitea numbers must match GitHub's so #N references in commits and comments stay correct.
+// PR numbers are left as gaps, since mirrors have no pull requests.
 const syncIssues = async ({ gh, gtRepo }, ghIssues, count) => {
   const [gtIssues, gtLabels] = await Promise.all([
     pages(`${gtRepo}/issues?state=all&type=issues`, gtHeaders, 'limit'),
@@ -37,18 +36,25 @@ const syncIssues = async ({ gh, gtRepo }, ghIssues, count) => {
     }
   };
   const link = n => `https://github.com/${gh.owner}/${gh.name}/issues/${n}`;
+  // One-time cleanup: PRs used to be copied as issues with a `pull request` label
+  for (const gt of gtIssues.filter(gt => gt.body.includes(`opened pull request [GitHub #${gt.number}](${link(gt.number)})`))) {
+    await request(`${gtRepo}/issues/${gt.number}`, gtHeaders, 'DELETE');
+    byNumber.delete(gt.number);
+    console.log(`Removed PR copy ${gtRepo.split('/repos/')[1]}#${gt.number}`);
+  }
+  const prLabel = gtLabels.find(label => label.name === 'pull request' && label.description === 'Pull request on GitHub');
+  if (prLabel) await request(`${gtRepo}/labels/${prLabel.id}`, gtHeaders, 'DELETE');
   let top = Math.max(0, ...byNumber.keys());
 
   for (const issue of ghIssues.sort((a, b) => a.number - b.number)) {
-    const n = issue.number, kind = issue.pull_request ? 'pull request' : 'issue';
-    const header = `${who(issue.user)} opened ${kind} [GitHub #${n}](${link(n)}) on ${issue.created_at.slice(0, 10)}`;
+    const n = issue.number;
+    const header = `${who(issue.user)} opened issue [GitHub #${n}](${link(n)}) on ${issue.created_at.slice(0, 10)}`;
     const want = { title: issue.title, body: quote(header, issue.body), state: issue.state };
-    const labels = issue.pull_request ? [...issue.labels, prLabel] : issue.labels;
     const gt = byNumber.get(n);
 
     if (!gt) {
       if (n < top) throw new Error(`Gitea has no #${n} and can't reuse the number`);
-      await create({ title: want.title, body: want.body, closed: want.state === 'closed', labels: await ids(labels) }, n);
+      await create({ title: want.title, body: want.body, closed: want.state === 'closed', labels: await ids(issue.labels) }, n);
       top = n;
       count.created++;
       continue;
@@ -60,8 +66,8 @@ const syncIssues = async ({ gh, gtRepo }, ghIssues, count) => {
       await request(`${gtRepo}/issues/${n}`, gtHeaders, 'PATCH', want);
       changed = true;
     }
-    if (names(gt.labels) !== names(labels)) {
-      await request(`${gtRepo}/issues/${n}/labels`, gtHeaders, 'PUT', { labels: await ids(labels) });
+    if (names(gt.labels) !== names(issue.labels)) {
+      await request(`${gtRepo}/issues/${n}/labels`, gtHeaders, 'PUT', { labels: await ids(issue.labels) });
       changed = true;
     }
     if (changed) count.updated++;
@@ -69,7 +75,7 @@ const syncIssues = async ({ gh, gtRepo }, ghIssues, count) => {
 };
 
 // Conversation comments on issues and PRs; the GitHub comment link in each header maps them back
-const syncComments = async ({ gh, gtRepo }, count) => {
+const syncComments = async ({ gh, gtRepo }, prs, count) => {
   const [ghComments, gtComments] = await Promise.all([
     pages(`${github}/repos/${enc(gh.owner, gh.name)}/issues/comments?sort=created&direction=asc`, ghHeaders, 'per_page'),
     pages(`${gtRepo}/issues/comments`, gtHeaders, 'limit')
@@ -78,10 +84,12 @@ const syncComments = async ({ gh, gtRepo }, count) => {
     [comment.body.split('\n', 1)[0].match(/#issuecomment-(\d+)\)/)?.[1], comment]
   ));
   for (const comment of ghComments) {
+    const n = Number(comment.issue_url.split('/').pop());
+    if (prs.has(n)) continue;
     const body = quote(`${who(comment.user)} commented on [${comment.created_at.slice(0, 10)}](${comment.html_url})`, comment.body);
     const gt = mirrored.get(String(comment.id));
     if (!gt) {
-      await request(`${gtRepo}/issues/${comment.issue_url.split('/').pop()}/comments`, gtHeaders, 'POST', { body });
+      await request(`${gtRepo}/issues/${n}/comments`, gtHeaders, 'POST', { body });
       count.commentsCreated++;
     } else if (gt.body !== body) {
       await request(`${gtRepo}/issues/comments/${gt.id}`, gtHeaders, 'PATCH', { body });
@@ -99,11 +107,14 @@ const syncComments = async ({ gh, gtRepo }, count) => {
     const { gh, name } = mirror;
     const count = { created: 0, updated: 0, commentsCreated: 0, commentsUpdated: 0 };
     try {
-      const ghIssues = await pages(`${github}/repos/${enc(gh.owner, gh.name)}/issues?state=all`, ghHeaders, 'per_page', true);
-      if (!ghIssues?.length) continue;
-      facts.issuesFound += ghIssues.length;
-      await syncIssues(mirror, ghIssues, count);
-      if (ghIssues.some(issue => issue.comments)) await syncComments(mirror, count);
+      // GitHub lists PRs as issues too
+      const all = await pages(`${github}/repos/${enc(gh.owner, gh.name)}/issues?state=all`, ghHeaders, 'per_page', true);
+      if (!all?.length) continue;
+      const issues = all.filter(issue => !issue.pull_request);
+      const prs = new Set(all.filter(issue => issue.pull_request).map(issue => issue.number));
+      facts.issuesFound += issues.length;
+      await syncIssues(mirror, issues, count);
+      if (issues.some(issue => issue.comments)) await syncComments(mirror, prs, count);
     } catch (error) {
       facts.failures++;
       console.error(`Failed to sync issues for ${name}: ${error.message}`);
