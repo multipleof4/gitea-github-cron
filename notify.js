@@ -10,6 +10,7 @@ const labels = {
     ['org visibility change', 'orgVisibilityChanged'],
     ['new mirror', 'mirrorsCreated'],
     ['repo visibility change', 'repoVisibilityChanged'],
+    ['description update', 'descriptionsUpdated'],
     ['failure', 'failures']
   ]],
   rename: ['Missing-mirror check', 'rename-facts.json', [
@@ -26,6 +27,15 @@ const labels = {
     ['updated release', 'updated'],
     ['uploaded asset', 'assetsUploaded'],
     ['unsynced tag', 'unsyncedTags'],
+    ['failure', 'failures']
+  ]],
+  issues: ['Issue sync', 'issue-facts.json', [
+    ['mirror', 'mirrorsChecked'],
+    ['GitHub issue', 'issuesFound'],
+    ['created issue', 'created'],
+    ['updated issue', 'updated'],
+    ['created comment', 'commentsCreated'],
+    ['updated comment', 'commentsUpdated'],
     ['failure', 'failures']
   ]]
 };

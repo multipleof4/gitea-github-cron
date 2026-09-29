@@ -1,54 +1,10 @@
 const { writeFileSync } = require('node:fs');
-const { GH_PAT, GITEA_TOKEN, GITEA_URL } = process.env;
-if (![GH_PAT, GITEA_TOKEN, GITEA_URL].every(Boolean)) {
-  throw new Error('GH_PAT, GITEA_TOKEN, and GITEA_URL are required');
-}
-
-const gitea = `https://${GITEA_URL.replace(/^https?:\/\//, '').replace(/\/$/, '')}/api/v1`;
-const github = 'https://api.github.com';
-const ghHeaders = { Authorization: `token ${GH_PAT}`, Accept: 'application/vnd.github+json' };
-const gtHeaders = { Authorization: `token ${GITEA_TOKEN}`, 'Content-Type': 'application/json' };
+const { github, ghHeaders, gtHeaders, enc, request, pages, listMirrors } = require('./gitea-mirrors');
 const facts = {
   mirrorsChecked: 0, releasesFound: 0, created: 0, updated: 0, assetsUploaded: 0,
   unsyncedTags: 0, failures: 0, changes: []
 };
-const key = value => value.toLowerCase();
-const enc = (...parts) => parts.map(encodeURIComponent).join('/');
 const transferTimeout = () => AbortSignal.timeout(30 * 60_000);
-
-const request = async (url, headers, method = 'GET', body, missingOK = false) => {
-  const res = await fetch(url, {
-    method, headers, body: body && JSON.stringify(body), signal: AbortSignal.timeout(30_000)
-  });
-  if (res.status === 404 && missingOK) return null;
-  if (!res.ok) throw new Error(`${method} ${url}: ${res.status} ${(await res.text()).slice(0, 300)}`);
-  return res.json();
-};
-
-const pages = async (url, headers, sizeKey, missingOK = false) => {
-  const all = [];
-  for (let page = 1; page <= 1000; page++) {
-    const next = new URL(url);
-    next.searchParams.set(sizeKey, '100');
-    next.searchParams.set('page', String(page));
-    const batch = await request(next, headers, 'GET', null, missingOK);
-    if (batch === null) return null;
-    if (!Array.isArray(batch)) throw new Error(`Expected an array from ${next}`);
-    if (!batch.length) return all;
-    all.push(...batch);
-  }
-  throw new Error(`Pagination limit reached for ${url}`);
-};
-
-const source = repo => {
-  try {
-    const url = new URL(repo.original_url.replace(/^git@github\.com:/i, 'https://github.com/'));
-    const parts = url.pathname.replace(/\.git\/?$/i, '').split('/').filter(Boolean);
-    return url.hostname === 'github.com' && parts.length === 2 ? { owner: parts[0], name: parts[1] } : null;
-  } catch {
-    return null;
-  }
-};
 
 // Pipe the GitHub download straight into Gitea's raw upload, so assets never touch disk or memory
 const copyAsset = async (gh, gtRepo, releaseId, asset) => {
@@ -64,9 +20,8 @@ const copyAsset = async (gh, gtRepo, releaseId, asset) => {
   if (!upload.ok) throw new Error(`upload ${asset.name}: ${upload.status} ${(await upload.text()).slice(0, 300)}`);
 };
 
-const syncRelease = async ({ repo, gh }, rel, existing) => {
-  const gtRepo = `${gitea}/repos/${enc(repo.owner.login, repo.name)}`;
-  const where = `${repo.owner.login}/${repo.name}@${rel.tag_name}`;
+const syncRelease = async ({ gh, gtRepo, name }, rel, existing) => {
+  const where = `${name}@${rel.tag_name}`;
   const want = { name: rel.name || rel.tag_name, body: rel.body || '', prerelease: rel.prerelease };
   let gt = existing.get(rel.tag_name), action;
 
@@ -104,37 +59,22 @@ const syncRelease = async ({ repo, gh }, rel, existing) => {
 };
 
 (async () => {
-  const [gtUser, gtOrgs] = await Promise.all([
-    request(`${gitea}/user`, gtHeaders),
-    pages(`${gitea}/user/orgs`, gtHeaders, 'limit')
-  ]);
-  const owners = [gtUser.login, ...gtOrgs.map(org => org.username || org.name)];
-  const repos = (await Promise.all(owners.map((owner, i) =>
-    pages(i ? `${gitea}/orgs/${enc(owner)}/repos` : `${gitea}/user/repos`, gtHeaders, 'limit')
-  ))).flat();
-  const ownerKeys = new Set(owners.map(key));
-
-  // Frozen mirrors (sync interval 0, e.g. renamed -goneN ones) never get new tags
-  const mirrors = [...new Map(repos.map(repo => [repo.id, repo])).values()]
-    .filter(repo => repo.mirror && repo.original_url && !repo.archived && repo.mirror_interval !== '0s')
-    .filter(repo => ownerKeys.has(key(repo.owner.login)))
-    .map(repo => ({ repo, gh: source(repo) }))
-    .filter(mirror => mirror.gh);
+  const mirrors = await listMirrors();
   facts.mirrorsChecked = mirrors.length;
   console.log(`Checking releases for ${mirrors.length} GitHub mirror(s)...`);
 
   for (const mirror of mirrors) {
-    const { repo, gh } = mirror;
+    const { gh, gtRepo, name } = mirror;
     let releases, existing;
     try {
       releases = await pages(`${github}/repos/${enc(gh.owner, gh.name)}/releases`, ghHeaders, 'per_page', true);
       releases = (releases || []).filter(rel => !rel.draft).reverse();
       if (!releases.length) continue;
-      const gtReleases = await pages(`${gitea}/repos/${enc(repo.owner.login, repo.name)}/releases`, gtHeaders, 'limit');
+      const gtReleases = await pages(`${gtRepo}/releases`, gtHeaders, 'limit');
       existing = new Map(gtReleases.map(rel => [rel.tag_name, rel]));
     } catch (error) {
       facts.failures++;
-      console.error(`Failed to list releases for ${repo.owner.login}/${repo.name}: ${error.message}`);
+      console.error(`Failed to list releases for ${name}: ${error.message}`);
       continue;
     }
 
@@ -144,7 +84,7 @@ const syncRelease = async ({ repo, gh }, rel, existing) => {
         await syncRelease(mirror, rel, existing);
       } catch (error) {
         facts.failures++;
-        console.error(`Failed to sync ${repo.owner.login}/${repo.name}@${rel.tag_name}: ${error.message}`);
+        console.error(`Failed to sync ${name}@${rel.tag_name}: ${error.message}`);
       }
     }
   }

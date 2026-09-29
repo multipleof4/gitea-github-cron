@@ -3,7 +3,7 @@ const { writeFileSync } = require('node:fs');
 const { GH_PAT, GITEA_TOKEN, GITEA_URL } = process.env;
 const facts = {
   orgsChecked: 0, orgsCreated: 0, orgVisibilityChanged: 0, avatarsUpdated: 0,
-  reposFound: 0, mirrorsCreated: 0, repoVisibilityChanged: 0, failures: 0, changes: []
+  reposFound: 0, mirrorsCreated: 0, repoVisibilityChanged: 0, descriptionsUpdated: 0, failures: 0, changes: []
 };
 const G_API = `https://${GITEA_URL.replace(/^https?:\/\//, '')}/api/v1`;
 const headers = {
@@ -111,11 +111,21 @@ const getPages = async (url) => {
           await req(`${G_API}/repos/migrate`, headers.GT, 'POST', payload);
           facts.mirrorsCreated++;
           facts.changes.push(`Mirrored ${owner}/${r.name}`);
-        } else if (exists.private !== r.private) {
-          console.log(`Updating visibility: ${owner}/${r.name} → ${r.private ? 'private' : 'public'}`);
-          await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'PATCH', { private: r.private });
-          facts.repoVisibilityChanged++;
-          facts.changes.push(`${owner}/${r.name} is now ${r.private ? 'private' : 'public'}`);
+        } else {
+          const patch = {};
+          if (exists.private !== r.private) {
+            console.log(`Updating visibility: ${owner}/${r.name} → ${r.private ? 'private' : 'public'}`);
+            patch.private = r.private;
+            facts.repoVisibilityChanged++;
+            facts.changes.push(`${owner}/${r.name} is now ${r.private ? 'private' : 'public'}`);
+          }
+          if (exists.description !== (r.description || '')) {
+            console.log(`Updating description: ${owner}/${r.name}`);
+            patch.description = r.description || '';
+            facts.descriptionsUpdated++;
+            facts.changes.push(`Updated description of ${owner}/${r.name}`);
+          }
+          if (Object.keys(patch).length) await req(`${G_API}/repos/${owner}/${r.name}`, headers.GT, 'PATCH', patch);
         }
       } catch (e) {
         repoFailures++;
