@@ -36,14 +36,6 @@ const syncIssues = async ({ gh, gtRepo }, ghIssues, count) => {
     }
   };
   const link = n => `https://github.com/${gh.owner}/${gh.name}/issues/${n}`;
-  // One-time cleanup: PRs used to be copied as issues with a `pull request` label
-  for (const gt of gtIssues.filter(gt => gt.body.includes(`opened pull request [GitHub #${gt.number}](${link(gt.number)})`))) {
-    await request(`${gtRepo}/issues/${gt.number}`, gtHeaders, 'DELETE');
-    byNumber.delete(gt.number);
-    console.log(`Removed PR copy ${gtRepo.split('/repos/')[1]}#${gt.number}`);
-  }
-  const prLabel = gtLabels.find(label => label.name === 'pull request' && label.description === 'Pull request on GitHub');
-  if (prLabel) await request(`${gtRepo}/labels/${prLabel.id}`, gtHeaders, 'DELETE');
   let top = Math.max(0, ...byNumber.keys());
 
   for (const issue of ghIssues.sort((a, b) => a.number - b.number)) {
