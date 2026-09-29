@@ -65,7 +65,7 @@ const md = text => String(text).replace(/[\\`*_[\]#]/g, '\\$&');
   const res = await fetch(NTFY_TOPIC_URL, {
     method: 'POST',
     headers: {
-      Priority: '2', Title: title, Markdown: 'yes',
+      Priority: '1', Title: title, Markdown: 'yes',
       Tags: test ? 'test_tube' : ok ? 'white_check_mark' : 'x',
       ...(RUN_URL && { Actions: `view, Open run, ${RUN_URL}` })
     },
