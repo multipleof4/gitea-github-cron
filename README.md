@@ -8,12 +8,12 @@ GitHub Actions that back up every GitHub repo I own (personal and org) to a self
 
 | Workflow | Schedule (UTC) | Script | Does |
 | --- | --- | --- | --- |
+| Rename deleted GitHub mirrors | 03:30 (10:30 PM CDT) | `rename-gone-mirrors.js` | Renames mirrors whose GitHub repo was deleted or moved to `<name>-goneN` and freezes them |
 | Mirror to Gitea | 05:00 (12 AM CDT) | `mirror.js` | Creates missing orgs and pull mirrors, syncs repo/org visibility, descriptions and org avatars |
 | Sync releases to Gitea | 06:30 (1:30 AM CDT) | `sync-releases.js` | Copies GitHub releases (title, notes, assets) onto the mirrors |
-| Rename deleted GitHub mirrors | 08:00 (3 AM CDT) | `rename-gone-mirrors.js` | Renames mirrors whose GitHub repo was deleted or moved to `<name>-goneN` and freezes them |
-| Sync issues to Gitea | 09:30 (4:30 AM CDT) | `sync-issues.js` | Copies GitHub issues and their comments onto the mirrors |
+| Sync issues to Gitea | 08:00 (3 AM CDT) | `sync-issues.js` | Copies GitHub issues and their comments onto the mirrors |
 
-Each runs once a day, 1.5 hours apart, so each one starts with a fresh hourly GitHub API budget. All can also be run by hand from the Actions tab. Each run posts a summary to ntfy through `notify.js`. `gitea-mirrors.js` holds the API helpers the two sync scripts share.
+Each runs once a day, 1.5 hours apart, so each one starts with a fresh hourly GitHub API budget. Renames go first so gone mirrors are already frozen (and skipped) when the syncs run, and the syncs come after the mirror run so they cover mirrors made that night. All can also be run by hand from the Actions tab. Each run posts a summary to ntfy through `notify.js`. `gitea-mirrors.js` holds the API helpers the two sync scripts share.
 
 ## Releases on mirrors
 

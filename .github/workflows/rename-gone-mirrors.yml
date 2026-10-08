@@ -3,7 +3,7 @@ name: Rename deleted GitHub mirrors
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 8 * * *' # 3 AM CDT
+    - cron: '30 3 * * *' # 10:30 PM CDT
 
 jobs:
   rename:
