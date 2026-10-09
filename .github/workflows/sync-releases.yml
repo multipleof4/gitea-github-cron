@@ -3,7 +3,7 @@ name: Sync releases to Gitea
 on:
   workflow_dispatch:
   schedule:
-    - cron: '30 6 * * *' # 1:30 AM CDT
+    - cron: '0 5 * * *' # 12 AM CDT
 
 concurrency:
   group: sync-releases

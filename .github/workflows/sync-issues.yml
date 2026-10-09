@@ -3,7 +3,7 @@ name: Sync issues to Gitea
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 8 * * *' # 3 AM CDT
+    - cron: '30 6 * * *' # 1:30 AM CDT
 
 concurrency:
   group: sync-issues
